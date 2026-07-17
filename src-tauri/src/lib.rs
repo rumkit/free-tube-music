@@ -28,16 +28,23 @@ pub fn run() {
                 router_config_tx: tx,
             });
 
-            let port = config.router_port;
-            let listener = router::bind(port).map_err(|e| {
-                format!(
-                    "Could not start the local router on port {port}: {e}. \
-                     If this is \"access forbidden\" (os error 10013) on Windows, \
-                     that port likely falls inside a reserved TCP port range — \
-                     run `netsh interface ipv4 show excludedportrange protocol=tcp` \
-                     to check, then pick a different router port in settings."
-                )
-            })?;
+            // A bad saved router_port (e.g. one that falls inside a Windows reserved
+            // TCP port range — WSAEACCES / os error 10013) must never prevent the
+            // window from opening: that's the only place the user can fix it. Fall
+            // back to an OS-assigned ephemeral port rather than aborting startup.
+            let configured_port = config.router_port;
+            let listener = router::bind(configured_port).unwrap_or_else(|e| {
+                log::error!(
+                    "could not bind configured router port {configured_port}: {e}; \
+                     falling back to an OS-assigned port so the app can still start. \
+                     Fix the router port in settings to restore proxying — if this is \
+                     \"access forbidden\" (os error 10013), that port likely falls \
+                     inside a reserved TCP range (`netsh interface ipv4 show \
+                     excludedportrange protocol=tcp` to check)."
+                );
+                router::bind(0).expect("binding an OS-assigned port should never fail")
+            });
+            let port = listener.local_addr()?.port();
 
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = router::serve(listener, rx).await {
