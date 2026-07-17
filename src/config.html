@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FreeTubeMusic — Setup</title>
+    <link rel="stylesheet" href="config.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <h1>FreeTubeMusic</h1>
+      <p class="subtitle">
+        Configure the SOCKS5 proxy used only for geo-gated requests. Media
+        streaming always goes direct.
+      </p>
+
+      <form id="config-form">
+        <fieldset>
+          <legend>Upstream SOCKS5 proxy</legend>
+
+          <label for="proxy_host">Proxy host</label>
+          <input id="proxy_host" name="proxy_host" type="text" required placeholder="proxy.example.com" />
+
+          <label for="proxy_port">Proxy port</label>
+          <input id="proxy_port" name="proxy_port" type="number" min="1" max="65535" required placeholder="1080" />
+
+          <label for="proxy_username">Proxy username</label>
+          <input id="proxy_username" name="proxy_username" type="text" autocomplete="off" />
+
+          <label for="proxy_password">Proxy password</label>
+          <input id="proxy_password" name="proxy_password" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
+        </fieldset>
+
+        <fieldset>
+          <legend>Local router</legend>
+
+          <label for="router_port">Router listen port</label>
+          <input id="router_port" name="router_port" type="number" min="1" max="65535" required placeholder="9090" />
+          <p class="hint">Changing this requires an app restart.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Redirect mode</legend>
+
+          <label class="radio">
+            <input type="radio" name="redirect_mode" value="list" checked />
+            Redirect only listed hosts
+          </label>
+          <label class="radio">
+            <input type="radio" name="redirect_mode" value="all" />
+            Redirect all traffic
+          </label>
+
+          <label for="redirect_hosts">Redirect hosts (one per line)</label>
+          <textarea id="redirect_hosts" name="redirect_hosts" rows="4" placeholder="music.youtube.com&#10;youtubei.googleapis.com"></textarea>
+        </fieldset>
+
+        <fieldset>
+          <legend>Destination</legend>
+
+          <label for="main_host">Main host to open once configured</label>
+          <input id="main_host" name="main_host" type="text" required placeholder="https://music.youtube.com" />
+        </fieldset>
+
+        <div id="form-error" class="error" role="alert" hidden></div>
+
+        <div class="actions">
+          <button type="submit" id="save-btn">Save &amp; Launch</button>
+          <button type="button" id="restart-btn" hidden>Restart to apply</button>
+        </div>
+      </form>
+    </main>
+
+    <script type="module" src="config.js"></script>
+  </body>
+</html>
