@@ -135,3 +135,8 @@ pub fn apply_and_launch(app: AppHandle) -> Result<(), String> {
 pub fn request_restart(app: AppHandle) {
     app.restart();
 }
+
+#[tauri::command]
+pub fn take_startup_warning(state: State<'_, AppState>) -> Option<String> {
+    state.startup_warning.lock().unwrap().take()
+}
