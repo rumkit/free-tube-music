@@ -7,6 +7,7 @@
   --muted: #9aa0ab;
   --accent: #6ea8fe;
   --error: #ff6b6b;
+  --warning: #f5b942;
 }
 
 * {
@@ -25,11 +26,27 @@ body {
 
 .panel {
   width: 100%;
-  max-width: 520px;
+  max-width: 880px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.75rem;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1.25rem;
+}
+
+.column {
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 h1 {
@@ -104,6 +121,16 @@ textarea {
   background: rgba(255, 107, 107, 0.12);
   border: 1px solid var(--error);
   color: var(--error);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.warning {
+  background: rgba(245, 185, 66, 0.12);
+  border: 1px solid var(--warning);
+  color: var(--warning);
   padding: 0.6rem 0.8rem;
   border-radius: 6px;
   font-size: 0.85rem;

@@ -2,6 +2,7 @@ const { invoke } = window.__TAURI__.core;
 
 const form = document.getElementById("config-form");
 const errorBox = document.getElementById("form-error");
+const warningBox = document.getElementById("form-warning");
 const saveBtn = document.getElementById("save-btn");
 const restartBtn = document.getElementById("restart-btn");
 
@@ -13,6 +14,18 @@ function showError(message) {
 function clearError() {
   errorBox.hidden = true;
   errorBox.textContent = "";
+}
+
+async function loadStartupWarning() {
+  try {
+    const warning = await invoke("take_startup_warning");
+    if (warning) {
+      warningBox.textContent = warning;
+      warningBox.hidden = false;
+    }
+  } catch {
+    // Non-critical — nothing to show if this fails.
+  }
 }
 
 function setRedirectMode(mode) {
@@ -90,3 +103,4 @@ restartBtn.addEventListener("click", async () => {
 });
 
 loadConfig();
+loadStartupWarning();

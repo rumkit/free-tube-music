@@ -14,53 +14,61 @@
         streaming always goes direct.
       </p>
 
+      <div id="form-warning" class="warning" role="alert" hidden></div>
+
       <form id="config-form">
-        <fieldset>
-          <legend>Upstream SOCKS5 proxy</legend>
+        <div class="columns">
+          <div class="column">
+            <fieldset>
+              <legend>Upstream SOCKS5 proxy</legend>
 
-          <label for="proxy_host">Proxy host</label>
-          <input id="proxy_host" name="proxy_host" type="text" required placeholder="proxy.example.com" />
+              <label for="proxy_host">Proxy host</label>
+              <input id="proxy_host" name="proxy_host" type="text" required placeholder="proxy.example.com" />
 
-          <label for="proxy_port">Proxy port</label>
-          <input id="proxy_port" name="proxy_port" type="number" min="1" max="65535" required placeholder="1080" />
+              <label for="proxy_port">Proxy port</label>
+              <input id="proxy_port" name="proxy_port" type="number" min="1" max="65535" required placeholder="1080" />
 
-          <label for="proxy_username">Proxy username</label>
-          <input id="proxy_username" name="proxy_username" type="text" autocomplete="off" />
+              <label for="proxy_username">Proxy username</label>
+              <input id="proxy_username" name="proxy_username" type="text" autocomplete="off" />
 
-          <label for="proxy_password">Proxy password</label>
-          <input id="proxy_password" name="proxy_password" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
-        </fieldset>
+              <label for="proxy_password">Proxy password</label>
+              <input id="proxy_password" name="proxy_password" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
+            </fieldset>
 
-        <fieldset>
-          <legend>Local router</legend>
+            <fieldset>
+              <legend>Destination</legend>
 
-          <label for="router_port">Router listen port</label>
-          <input id="router_port" name="router_port" type="number" min="1" max="65535" required placeholder="9090" />
-          <p class="hint">Changing this requires an app restart.</p>
-        </fieldset>
+              <label for="main_host">Main host to open once configured</label>
+              <input id="main_host" name="main_host" type="text" required placeholder="https://music.youtube.com" />
+            </fieldset>
+          </div>
 
-        <fieldset>
-          <legend>Redirect mode</legend>
+          <div class="column">
+            <fieldset>
+              <legend>Local router</legend>
 
-          <label class="radio">
-            <input type="radio" name="redirect_mode" value="list" checked />
-            Redirect only listed hosts
-          </label>
-          <label class="radio">
-            <input type="radio" name="redirect_mode" value="all" />
-            Redirect all traffic
-          </label>
+              <label for="router_port">Router listen port</label>
+              <input id="router_port" name="router_port" type="number" min="1" max="65535" required placeholder="9090" />
+              <p class="hint">Changing this requires an app restart.</p>
+            </fieldset>
 
-          <label for="redirect_hosts">Redirect hosts (one per line)</label>
-          <textarea id="redirect_hosts" name="redirect_hosts" rows="4" placeholder="music.youtube.com&#10;youtubei.googleapis.com"></textarea>
-        </fieldset>
+            <fieldset>
+              <legend>Redirect mode</legend>
 
-        <fieldset>
-          <legend>Destination</legend>
+              <label class="radio">
+                <input type="radio" name="redirect_mode" value="list" checked />
+                Redirect only listed hosts
+              </label>
+              <label class="radio">
+                <input type="radio" name="redirect_mode" value="all" />
+                Redirect all traffic
+              </label>
 
-          <label for="main_host">Main host to open once configured</label>
-          <input id="main_host" name="main_host" type="text" required placeholder="https://music.youtube.com" />
-        </fieldset>
+              <label for="redirect_hosts">Redirect hosts (one per line)</label>
+              <textarea id="redirect_hosts" name="redirect_hosts" rows="4" placeholder="music.youtube.com&#10;youtubei.googleapis.com"></textarea>
+            </fieldset>
+          </div>
+        </div>
 
         <div id="form-error" class="error" role="alert" hidden></div>
 
