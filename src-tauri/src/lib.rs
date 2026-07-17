@@ -29,8 +29,18 @@ pub fn run() {
             });
 
             let port = config.router_port;
+            let listener = router::bind(port).map_err(|e| {
+                format!(
+                    "Could not start the local router on port {port}: {e}. \
+                     If this is \"access forbidden\" (os error 10013) on Windows, \
+                     that port likely falls inside a reserved TCP port range — \
+                     run `netsh interface ipv4 show excludedportrange protocol=tcp` \
+                     to check, then pick a different router port in settings."
+                )
+            })?;
+
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = router::run(port, rx).await {
+                if let Err(e) = router::serve(listener, rx).await {
                     log::error!("router failed to run: {e}");
                 }
             });

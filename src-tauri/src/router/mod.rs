@@ -7,11 +7,27 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio_socks::tcp::Socks5Stream;
 
-/// Runs the local CONNECT router until the listener fails. Intended to be spawned
-/// as a background tokio task for the lifetime of the app.
-pub async fn run(port: u16, config_rx: watch::Receiver<Arc<RouterConfig>>) -> std::io::Result<()> {
-    let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-    log::info!("router listening on 127.0.0.1:{port}");
+/// Binds the router's listening socket. Split out from `serve` so callers (namely
+/// app setup) can surface a bind failure — e.g. the port falling inside a Windows
+/// TCP excluded-port range (WSAEACCES / os error 10013) — before the window is
+/// built with a proxy_url pointing at a port nothing is listening on.
+pub fn bind(port: u16) -> std::io::Result<std::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+/// Runs the local CONNECT router accept loop until the listener fails. Intended to
+/// be spawned as a background tokio task for the lifetime of the app.
+pub async fn serve(
+    listener: std::net::TcpListener,
+    config_rx: watch::Receiver<Arc<RouterConfig>>,
+) -> std::io::Result<()> {
+    let listener = TcpListener::from_std(listener)?;
+    log::info!(
+        "router listening on {}",
+        listener.local_addr().map(|a| a.to_string()).unwrap_or_default()
+    );
 
     loop {
         let (socket, _addr) = listener.accept().await?;
