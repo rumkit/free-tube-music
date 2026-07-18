@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "remote-main-host",
-  "description": "Lets the gear overlay call show_config once the main window has navigated away from the app's own local origin to music.youtube.com. core:default only covers built-in plugin permissions — app-defined commands need to be named explicitly here to be reachable from remote content (local content is implicitly trusted, which is why this wasn't needed for the config page itself).",
+  "identifier": "remote-gear-overlay",
+  "description": "Lets the gear overlay call show_config from any page the main window navigates to — main_host is user-configurable and consent/login flows hit unpredictable Google regional domains, so the grant is a full wildcard rather than a fixed host list; the config page itself gets its (broader) commands from capabilities/default.json + permissions/config-page.toml instead, since local content is no longer implicitly trusted once this app defines any permission manifest. Because these URLs match every website the webview could ever display, this capability must only ever contain show_config-class permissions — no input, no data returned, worst case a benign navigation to settings — anything more powerful belongs in a separate, narrowly-scoped capability.",
   "windows": ["main"],
   "remote": {
-    "urls": ["https://*.youtube.com/*", "https://*.google.com/*"]
+    "urls": ["https://*/*", "http://*/*"]
   },
   "permissions": ["allow-show-config"]
 }
