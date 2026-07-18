@@ -1,10 +1,7 @@
 # FreeTubeMusic
 
 A Tauri desktop wrapper around [music.youtube.com](https://music.youtube.com) for
-Windows. YouTube Music's web client geo-gates a handful of startup/config
-requests, but media streaming itself isn't region-restricted — this app routes
-only the geo-gated request(s) through a remote, credentialed SOCKS5 proxy,
-while everything else (especially media) goes direct.
+Windows with SOCKS5 proxy support.
 
 See [CLAUDE.md](./CLAUDE.md) for how the routing and config storage work.
 
@@ -66,7 +63,7 @@ npm run tauri build -- --no-bundle
 ## Publish / distribute a release
 
 This repo has no CI release pipeline configured — releases are built and
-distributed manually:
+distributed manually: 
 
 1. Bump the version in `src-tauri/tauri.conf.json` (`version`) and
    `package.json` to match.
