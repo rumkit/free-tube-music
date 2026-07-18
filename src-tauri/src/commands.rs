@@ -110,15 +110,30 @@ async fn test_socks5_auth(host: &str, port: u16, username: &str, password: &str)
 
 #[tauri::command]
 pub fn show_config(app: AppHandle) -> Result<(), String> {
-    // The config page is a bundled asset; its runtime URL scheme differs by
-    // platform (tauri://localhost on macOS/Linux, https://tauri.localhost on
-    // Windows), so navigate via JS relative location instead of hand-building it.
+    // Must be an absolute URL: this command can be invoked from remote content
+    // (the gear overlay on music.youtube.com), where a relative JS location
+    // assignment would resolve against the *current* page's origin instead of
+    // the app's own — e.g. https://consent.youtube.com/config.html (404)
+    // instead of the bundled asset.
+    //
+    // The app's own origin differs between dev and production. Under
+    // `tauri dev` (no devUrl configured) the CLI serves ../src from its
+    // built-in dev server and injects its URL as build.dev_url — and codegen
+    // then embeds *zero* assets, so http://tauri.localhost serves nothing in
+    // dev. In production builds dev_url is None, assets are embedded, and the
+    // local origin is http://tauri.localhost (http, not https — https is
+    // opt-in via .use_https_scheme(true), unset here; Windows-only app).
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
-    window
-        .eval("window.location.href = 'config.html'")
-        .map_err(|e| e.to_string())
+    let base = if tauri::is_dev() {
+        app.config().build.dev_url.clone()
+    } else {
+        None
+    }
+    .unwrap_or_else(|| Url::parse("http://tauri.localhost/").expect("static URL is valid"));
+    let url = base.join("config.html").map_err(|e| e.to_string())?;
+    window.navigate(url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

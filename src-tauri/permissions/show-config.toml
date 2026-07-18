@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-show-config"
+description = "Allows navigating the main window back to the local config page."
+commands.allow = ["show_config"]

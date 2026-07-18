@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-main-host",
+  "description": "Lets the gear overlay call show_config once the main window has navigated away from the app's own local origin to music.youtube.com. core:default only covers built-in plugin permissions — app-defined commands need to be named explicitly here to be reachable from remote content (local content is implicitly trusted, which is why this wasn't needed for the config page itself).",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://*.youtube.com/*", "https://*.google.com/*"]
+  },
+  "permissions": ["allow-show-config"]
+}

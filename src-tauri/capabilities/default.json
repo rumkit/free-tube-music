@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window's local origin (config.html, both the dev server at http://127.0.0.1:1430 and the packaged http://tauri.localhost). No \"remote\" entry here, so this never matches music.youtube.com/google.com — those get only allow-show-config via remote.json.",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-config-page"
   ]
 }

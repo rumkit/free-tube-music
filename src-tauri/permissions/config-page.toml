@@ -1,0 +1,16 @@
+[[permission]]
+identifier = "allow-config-page"
+description = """
+Allows the local config page (src/config.html + config.js) to load and save
+app config, launch into music.youtube.com, request a restart, and read the
+one-shot startup warning. Local-only: granted via capabilities/default.json,
+which has no "remote" entry, so this is never reachable from remote origins
+(music.youtube.com etc. only get allow-show-config, via capabilities/remote.json).
+"""
+commands.allow = [
+    "load_config",
+    "save_config",
+    "apply_and_launch",
+    "request_restart",
+    "take_startup_warning",
+]
