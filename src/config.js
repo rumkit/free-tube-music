@@ -28,6 +28,17 @@ async function loadStartupWarning() {
   }
 }
 
+const proxyFieldset = document.getElementById("proxy-fieldset");
+const redirectFieldset = document.getElementById("redirect-fieldset");
+
+// Disabled fieldsets grey out their inputs and exempt them from `required`
+// validation, so an empty proxy host doesn't block submitting proxy-less.
+function applyProxyEnabled() {
+  const enabled = form.proxy_enabled.checked;
+  proxyFieldset.disabled = !enabled;
+  redirectFieldset.disabled = !enabled;
+}
+
 function setRedirectMode(mode) {
   const radio = form.querySelector(`input[name="redirect_mode"][value="${mode}"]`);
   if (radio) radio.checked = true;
@@ -36,6 +47,8 @@ function setRedirectMode(mode) {
 async function loadConfig() {
   try {
     const config = await invoke("load_config");
+    form.proxy_enabled.checked = config.proxy_enabled ?? true;
+    applyProxyEnabled();
     form.proxy_host.value = config.proxy_host ?? "";
     form.proxy_port.value = config.proxy_port ?? "";
     form.proxy_username.value = config.proxy_username ?? "";
@@ -56,6 +69,7 @@ function buildConfigPayload() {
     .filter(Boolean);
 
   return {
+    proxy_enabled: form.proxy_enabled.checked,
     proxy_host: form.proxy_host.value.trim(),
     proxy_port: Number(form.proxy_port.value),
     proxy_username: form.proxy_username.value.trim(),
@@ -101,6 +115,8 @@ restartBtn.addEventListener("click", async () => {
     restartBtn.disabled = false;
   }
 });
+
+form.proxy_enabled.addEventListener("change", applyProxyEnabled);
 
 loadConfig();
 loadStartupWarning();

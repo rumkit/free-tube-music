@@ -26,7 +26,10 @@ pub fn run() {
             let handle = app.handle().clone();
             let config = config_store::load(&handle)?;
             let password = secrets::get_password().unwrap_or_default();
-            let is_configured = !config.proxy_host.is_empty() && !password.is_empty();
+            // With the proxy disabled there's nothing to configure — launch
+            // straight into main_host. Proxy-on still needs host + password.
+            let is_configured = !config.proxy_enabled
+                || (!config.proxy_host.is_empty() && !password.is_empty());
             let router_config = commands::to_router_config(&config, password);
             let (tx, rx) = watch::channel(Arc::new(router_config));
 

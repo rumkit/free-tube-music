@@ -13,6 +13,17 @@ pub struct SaveResult {
 }
 
 pub(crate) fn to_router_config(config: &AppConfig, password: String) -> RouterConfig {
+    // Proxy disabled: nothing is gated, so every host takes the direct-dial
+    // path. Keeping mode=List(empty) rather than teaching the router about a
+    // disabled state preserves its 502-on-gated-host-without-upstream as a
+    // loud signal for genuine misconfiguration.
+    if !config.proxy_enabled {
+        return RouterConfig {
+            mode: RouterRedirectMode::List(HashSet::new()),
+            upstream: None,
+        };
+    }
+
     let mode = match config.redirect_mode {
         StoreRedirectMode::All => RouterRedirectMode::All,
         StoreRedirectMode::List => {
@@ -60,11 +71,13 @@ pub async fn save_config(
         .or_else(secrets::get_password)
         .unwrap_or_default();
 
-    if config.proxy_host.is_empty() {
-        return Err("Proxy host is required".to_string());
-    }
+    if config.proxy_enabled {
+        if config.proxy_host.is_empty() {
+            return Err("Proxy host is required".to_string());
+        }
 
-    test_socks5_auth(&config.proxy_host, config.proxy_port, &config.proxy_username, &effective_password).await?;
+        test_socks5_auth(&config.proxy_host, config.proxy_port, &config.proxy_username, &effective_password).await?;
+    }
 
     config_store::save(&app, &config)?;
 
@@ -154,4 +167,27 @@ pub fn request_restart(app: AppHandle) {
 #[tauri::command]
 pub fn take_startup_warning(state: State<'_, AppState>) -> Option<String> {
     state.startup_warning.lock().unwrap().take()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_proxy_maps_to_nothing_gated() {
+        let config = AppConfig {
+            proxy_enabled: false,
+            proxy_host: "proxy.example.com".to_string(),
+            redirect_mode: StoreRedirectMode::All,
+            ..AppConfig::default()
+        };
+
+        let router_config = to_router_config(&config, "secret".to_string());
+
+        assert!(router_config.upstream.is_none());
+        match router_config.mode {
+            RouterRedirectMode::List(hosts) => assert!(hosts.is_empty()),
+            RouterRedirectMode::All => panic!("disabled proxy must not gate all traffic"),
+        }
+    }
 }

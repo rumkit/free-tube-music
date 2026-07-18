@@ -17,8 +17,18 @@ impl Default for RedirectMode {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// When false, the upstream SOCKS5 proxy is ignored entirely: nothing is
+    /// gated, every connection dials direct, and no credentials are required.
+    /// Defaults to true so config.json files written before this field existed
+    /// (which always had a working proxy) keep their behavior.
+    #[serde(default = "default_true")]
+    pub proxy_enabled: bool,
     pub proxy_host: String,
     pub proxy_port: u16,
     pub proxy_username: String,
@@ -31,6 +41,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            proxy_enabled: true,
             proxy_host: String::new(),
             proxy_port: 1080,
             proxy_username: String::new(),

@@ -19,7 +19,12 @@
       <form id="config-form">
         <div class="columns">
           <div class="column">
-            <fieldset>
+            <label class="toggle-row">
+              <input type="checkbox" id="proxy_enabled" name="proxy_enabled" checked />
+              Use SOCKS5 proxy
+            </label>
+
+            <fieldset id="proxy-fieldset">
               <legend>Upstream SOCKS5 proxy</legend>
 
               <label for="proxy_host">Proxy host</label>
@@ -52,7 +57,7 @@
               <p class="hint">Changing this requires an app restart.</p>
             </fieldset>
 
-            <fieldset>
+            <fieldset id="redirect-fieldset">
               <legend>Redirect mode</legend>
 
               <label class="radio">
