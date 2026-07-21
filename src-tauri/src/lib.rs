@@ -1,5 +1,6 @@
 mod commands;
 mod config_store;
+mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
@@ -72,18 +73,56 @@ pub fn run() {
             // credentials are already saved — but only if the router actually
             // came up on the port the user configured; otherwise stay on the
             // config page so the startup_warning above is visible.
-            let initial_url = if startup_warning.is_none() && is_configured {
-                WebviewUrl::External(Url::parse(&config.main_host)?)
+            let launch_main = startup_warning.is_none() && is_configured;
+
+            // When launching straight into YT Music, hold on about:blank first so
+            // no authenticated request fires before we've restored the session
+            // cookies; then navigate. Otherwise show the config page as before.
+            let initial_url = if launch_main {
+                WebviewUrl::External(Url::parse("about:blank")?)
             } else {
                 WebviewUrl::App("config.html".into())
             };
 
-            WebviewWindowBuilder::new(app, "main", initial_url)
+            let window = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("FreeTubeMusic")
                 .inner_size(900.0, 700.0)
                 .proxy_url(proxy_url)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
                 .build()?;
+
+            if launch_main {
+                // Re-inject session cookies WebView2 dropped on last close, then
+                // navigate. restore() runs synchronously on the main thread (the
+                // wry cookie message is handled inline here), so it completes
+                // before navigation issues the first request.
+                cookies::restore(&window);
+                window.navigate(Url::parse(&config.main_host)?)?;
+            }
+
+            // Back up the cookie store on close (freshest session state) and
+            // periodically (crash/power-loss insurance). Best-effort; failures
+            // are logged, never fatal.
+            {
+                let w = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        cookies::backup(&w);
+                    }
+                });
+            }
+            {
+                let w = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(300));
+                    interval.tick().await; // fires immediately; skip it
+                    loop {
+                        interval.tick().await;
+                        cookies::backup(&w);
+                    }
+                });
+            }
 
             Ok(())
         })

@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "freetubemusic"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "keyring",
  "log",
@@ -1126,6 +1126,7 @@ dependencies = [
  "tokio",
  "tokio-socks",
  "url",
+ "windows",
 ]
 
 [[package]]
