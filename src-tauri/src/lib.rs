@@ -4,6 +4,7 @@ mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
+mod session_guard;
 
 use router::config::RouterConfig;
 use std::sync::{Arc, Mutex};
@@ -89,6 +90,7 @@ pub fn run() {
                 .inner_size(900.0, 700.0)
                 .proxy_url(proxy_url)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
+                .initialization_script(session_guard::SESSION_GUARD_JS)
                 .build()?;
 
             if launch_main {
