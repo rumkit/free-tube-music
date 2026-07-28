@@ -4,11 +4,28 @@ mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
+mod tracking;
 
 use router::config::RouterConfig;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::watch;
+
+/// A plain desktop-Chrome user agent. Google refuses interactive sign-in in
+/// embedded webviews (it detects WebView2/`Edg` user agents as such), so we
+/// present a stock Chrome UA instead. The major version is taken from the
+/// installed WebView2 runtime so the string tracks the real engine and never
+/// goes stale; if that lookup fails we fall back to a recent stable major.
+fn chrome_user_agent() -> String {
+    let major = tauri::webview_version()
+        .ok()
+        .and_then(|v| v.split('.').next().and_then(|m| m.parse::<u32>().ok()))
+        .unwrap_or(138);
+    format!(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+         (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+    )
+}
 
 pub struct AppState {
     pub router_config_tx: watch::Sender<Arc<RouterConfig>>,
@@ -84,12 +101,20 @@ pub fn run() {
                 WebviewUrl::App("config.html".into())
             };
 
+            let user_agent = chrome_user_agent();
             let window = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("FreeTubeMusic")
                 .inner_size(900.0, 700.0)
                 .proxy_url(proxy_url)
+                .user_agent(&user_agent)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
                 .build()?;
+
+            // Allow Google's cross-site cookies to flow (WebView2 blocks
+            // third-party cookies by default via tracking prevention), so the
+            // logged-in session survives mid-use instead of being signed out.
+            // Set before the first navigation below.
+            tracking::disable(&window);
 
             if launch_main {
                 // Re-inject session cookies WebView2 dropped on last close, then
