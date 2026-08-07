@@ -28,6 +28,33 @@ fn chrome_user_agent() -> String {
     )
 }
 
+/// Command line handed to the WebView2 browser process.
+///
+/// **Setting this at all takes over wry's whole default argument block**
+/// (`wry-0.55.1/src/webview2/mod.rs:294-322`): the `--proxy-server=` flag it
+/// derives from `proxy_url` lives *inside* the `unwrap_or_else` fallback, as does
+/// `--autoplay-policy`. So every one of those has to be reproduced here or it is
+/// silently lost — and losing the proxy is the dangerous one: the app keeps
+/// working, but every request goes direct and the geo-block comes back with no
+/// error anywhere. `port` must be the port the router actually bound, which may
+/// be an OS-assigned fallback rather than the configured one.
+///
+/// On top of the defaults, this disables Chromium's third-party-cookie phase-out
+/// (`TrackingProtection3pcd`) and cross-site storage partitioning. That part is a
+/// **trial**: the profile shows no sign third-party cookies are being blocked
+/// (`cookie_controls_mode` unset, no cookie exceptions, and Edge already records
+/// google.com/youtube.com as one organisation via `tracking_org_relationships`),
+/// so this may well be a no-op. The log line at the call site records the exact
+/// string used, so it's possible to tell afterwards what was actually in effect.
+fn chromium_args(port: u16) -> String {
+    format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,\
+         TrackingProtection3pcd,ThirdPartyStoragePartitioning \
+         --autoplay-policy=no-user-gesture-required \
+         --proxy-server=http://127.0.0.1:{port}"
+    )
+}
+
 pub struct AppState {
     pub router_config_tx: watch::Sender<Arc<RouterConfig>>,
     /// Set when the configured router port couldn't be bound at startup and a
@@ -110,14 +137,17 @@ pub fn run() {
             };
 
             let user_agent = chrome_user_agent();
+            let browser_args = chromium_args(port);
             let window = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("FreeTubeMusic")
                 .inner_size(900.0, 700.0)
                 .proxy_url(proxy_url)
+                .additional_browser_args(&browser_args)
                 .user_agent(&user_agent)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
                 .initialization_script(session_recovery::SESSION_RECOVERY_JS)
                 .build()?;
+            log::info!("webview browser args: {browser_args}");
 
             // Allow Google's cross-site cookies to flow (WebView2 blocks
             // third-party cookies by default via tracking prevention), so the
@@ -191,4 +221,45 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chromium_args;
+
+    /// The whole routing design depends on this flag. Because setting custom
+    /// browser args replaces wry's defaults wholesale, dropping it wouldn't fail
+    /// anywhere — the app would just quietly stop using the proxy.
+    #[test]
+    fn browser_args_carry_the_router_proxy_on_the_bound_port() {
+        assert!(chromium_args(9090).contains("--proxy-server=http://127.0.0.1:9090"));
+        // Specifically the port passed in, not the configured default: the
+        // router falls back to an OS-assigned port when the configured one
+        // can't be bound.
+        assert!(chromium_args(51234).contains("--proxy-server=http://127.0.0.1:51234"));
+    }
+
+    /// wry only adds these when it builds the default block, which our override
+    /// bypasses. Autoplay especially: losing it stops playback starting on its own.
+    #[test]
+    fn browser_args_keep_wrys_defaults() {
+        let args = chromium_args(9090);
+        for expected in [
+            "msWebOOUI",
+            "msPdfOOUI",
+            "msSmartScreenProtection",
+            "--autoplay-policy=no-user-gesture-required",
+        ] {
+            assert!(args.contains(expected), "{expected} missing from {args}");
+        }
+    }
+
+    /// Chromium takes one --disable-features; a second would override the first.
+    #[test]
+    fn browser_args_pass_a_single_disable_features_switch() {
+        let args = chromium_args(9090);
+        assert_eq!(args.matches("--disable-features=").count(), 1, "{args}");
+        assert!(args.contains("TrackingProtection3pcd"));
+        assert!(args.contains("ThirdPartyStoragePartitioning"));
+    }
 }
