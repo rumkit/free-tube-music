@@ -26,8 +26,12 @@
 //!   than 10 minutes and bounce on nearly every restart, including ones where the
 //!   session is still perfectly fresh. `ytcfg`'s `LOGGED_IN` fires only when
 //!   YouTube has actually rejected the session.
-//! - **Never hardcode a Google URL.** The href is read off YouTube's own sign-in
-//!   anchor, so it can't rot when Google changes the flow.
+//! - **Prefer YouTube's own sign-in href.** Reading it off the live DOM means it
+//!   can't rot when Google changes the flow. There is a constructed
+//!   `ServiceLogin` fallback for when the scan finds nothing — the signed-out
+//!   markup is the one thing here that couldn't be tested ahead of time, and a
+//!   guess that might rot beats doing nothing and waiting another day to find
+//!   out. The `sessionStorage` guard bounds the cost if the fallback is wrong.
 //! - **One attempt per tab session.** The guard is checked *before* navigating
 //!   and set immediately, and `sessionStorage` survives the round trip through
 //!   `accounts.google.com`, so a bounce that fails to restore the session cannot
@@ -70,6 +74,7 @@ pub const SESSION_RECOVERY_JS: &str = r#"
 
   // YouTube's own sign-in anchor. Every surface points it at accounts.google.com
   // with a continue= back to where we are, which is exactly the bounce we want.
+  // Returns null if the nav hasn't rendered yet, so the caller can keep polling.
   function signInHref() {
     var links = document.querySelectorAll('a[href*="accounts.google.com"]');
     for (var i = 0; i < links.length; i++) {
@@ -79,6 +84,14 @@ pub const SESSION_RECOVERY_JS: &str = r#"
       }
     }
     return null;
+  }
+
+  // Used only once the deadline passes without the scan finding anything — for
+  // instance if YouTube renders sign-in as a button rather than a light-DOM
+  // anchor. Same shape as the link YouTube itself uses.
+  function fallbackHref() {
+    return "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3" +
+      "&continue=" + encodeURIComponent(location.href);
   }
 
   function attempted() {
@@ -116,20 +129,25 @@ pub const SESSION_RECOVERY_JS: &str = r#"
         return;
       }
       var href = signInHref();
+      var viaFallback = false;
       if (!href) {
         // The nav bar may not have rendered yet; keep looking until the deadline.
         if (Date.now() - started < DEADLINE_MS) {
           setTimeout(check, POLL_MS);
-        } else {
-          report("signed out but no sign-in link found — not bouncing");
+          return;
         }
-        return;
+        href = fallbackHref();
+        viaFallback = true;
       }
       if (!markAttempted()) {
         report("signed out but sessionStorage is unavailable — not bouncing (no loop guard)");
         return;
       }
-      report("signed out; bouncing through YouTube's own sign-in link to refresh the session");
+      report(
+        viaFallback
+          ? "signed out and no sign-in link found; bouncing via the constructed ServiceLogin URL"
+          : "signed out; bouncing through YouTube's own sign-in link to refresh the session"
+      );
       location.href = href;
       return;
     }
