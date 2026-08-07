@@ -169,6 +169,17 @@ pub fn take_startup_warning(state: State<'_, AppState>) -> Option<String> {
     state.startup_warning.lock().unwrap().take()
 }
 
+/// Lets the injected page scripts write into the app log. The sign-out only
+/// reproduces once a day, so the one launch that exhibits it has to be
+/// self-diagnosing — a DevTools window nobody had open at the time is no use.
+#[tauri::command]
+pub fn log_page_event(message: String) {
+    // Truncated and prefixed: this is remote-page input, and it must be obvious
+    // in the log that it didn't come from the backend.
+    let message: String = message.chars().take(500).collect();
+    log::info!("page: {message}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

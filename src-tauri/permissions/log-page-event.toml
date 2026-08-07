@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "allow-log-page-event"
+description = """
+Allows the injected session-recovery script to write a short diagnostic line
+into the app log. Takes a caller-supplied string, so unlike allow-show-config it
+must never be granted to the wildcard remote capability — it is scoped to
+YouTube origins only, via capabilities/session-recovery.json. The command
+truncates the message and prefixes it with "page:" so remote-page text is always
+distinguishable from backend output in the log.
+"""
+commands.allow = ["log_page_event"]

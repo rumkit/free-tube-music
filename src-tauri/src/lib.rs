@@ -4,6 +4,7 @@ mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
+mod session_recovery;
 mod tracking;
 
 use router::config::RouterConfig;
@@ -39,7 +40,14 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        // Info, explicitly: the cookie backup/restore lines are the only way to
+        // tell whether the session actually survived a restart, and they must
+        // not depend on whatever the default filter happens to pass.
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .setup(|app| {
             let handle = app.handle().clone();
             let config = config_store::load(&handle)?;
@@ -108,6 +116,7 @@ pub fn run() {
                 .proxy_url(proxy_url)
                 .user_agent(&user_agent)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
+                .initialization_script(session_recovery::SESSION_RECOVERY_JS)
                 .build()?;
 
             // Allow Google's cross-site cookies to flow (WebView2 blocks
@@ -125,22 +134,42 @@ pub fn run() {
                 window.navigate(Url::parse(&config.main_host)?)?;
             }
 
-            // Back up the cookie store on close (freshest session state) and
-            // periodically (crash/power-loss insurance). Best-effort; failures
-            // are logged, never fatal.
+            // Snapshot the cookie store periodically while the webview is alive,
+            // and flush the newest snapshot on close. Best-effort; failures are
+            // logged, never fatal.
+            //
+            // The close handler deliberately does *not* read cookies: that read
+            // pumps the Windows message loop, which re-delivers the close event
+            // and re-enters this handler, and WebView2 drops cookies as it tears
+            // down — so a close-time read wrote a degraded snapshot over the good
+            // one. See the `cookies` module docs.
             {
                 let w = window.clone();
+                let flushed = std::sync::atomic::AtomicBool::new(false);
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        cookies::backup(&w);
+                        if !flushed.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            cookies::write_last(&w);
+                        }
                     }
                 });
             }
             {
                 let w = window.clone();
                 tauri::async_runtime::spawn(async move {
+                    // Take the first snapshot early: the close handler can only
+                    // flush a snapshot that already exists, so without this a
+                    // session shorter than the interval would contribute nothing
+                    // at all. 15s is long enough for the page to have loaded and
+                    // settled its cookies.
+                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                    cookies::backup(&w);
+
+                    // Then 60s rather than the old 300s: this is now the only
+                    // path that reads cookies, so it bounds how much of the
+                    // session a crash — or a close between ticks — can cost.
                     let mut interval =
-                        tokio::time::interval(std::time::Duration::from_secs(300));
+                        tokio::time::interval(std::time::Duration::from_secs(60));
                     interval.tick().await; // fires immediately; skip it
                     loop {
                         interval.tick().await;
@@ -158,6 +187,7 @@ pub fn run() {
             commands::apply_and_launch,
             commands::request_restart,
             commands::take_startup_warning,
+            commands::log_page_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

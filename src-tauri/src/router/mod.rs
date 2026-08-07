@@ -56,6 +56,15 @@ async fn handle_connection(
 
     let config = config_rx.borrow().clone();
 
+    // Google's account hosts are the ones that re-mint a stale YouTube session
+    // (the `*SIDRTS` rotation tokens live ~10 minutes, so after the app has been
+    // closed a while there is nothing left to rotate with). Logging just these
+    // makes it visible whether a refresh was even attempted on a signed-out
+    // launch, without logging the user's whole browsing history.
+    if host.starts_with("accounts.") {
+        log::info!("router: connecting to {host}:{port}");
+    }
+
     let upstream_result = if config.should_proxy(&host) {
         dial_via_socks5(&config, &host, port).await
     } else {
