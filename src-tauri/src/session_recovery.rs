@@ -35,12 +35,23 @@
 //! - **One attempt per tab session.** The guard is checked *before* navigating
 //!   and set immediately, and `sessionStorage` survives the round trip through
 //!   `accounts.google.com`, so a bounce that fails to restore the session cannot
-//!   loop.
+//!   loop. This is only sound because the script is top-frame-only (below) —
+//!   a same-origin iframe shares `sessionStorage` and could otherwise burn the
+//!   one-shot flag on the top document's behalf.
+//! - **Top frame only.** `initialization_script` becomes
+//!   `AddScriptToExecuteOnDocumentCreated`, which wry applies to subframes as
+//!   well as the main document, and a YouTube-hosted iframe satisfies the
+//!   hostname gate just as the real page does.
 
 /// Injected on every page load, alongside the gear overlay.
 pub const SESSION_RECOVERY_JS: &str = r#"
 (function () {
   if (!/(^|\.)youtube\.com$/.test(location.hostname)) return;
+  // This script is injected into subframes too, so a YouTube iframe would
+  // otherwise run it: location.href would navigate the frame rather than the
+  // window, and a same-origin frame shares sessionStorage, so it could burn the
+  // one-shot guard and suppress the bounce that actually matters.
+  if (window.top !== window.self) return;
   if (window.__ftmSessionRecovery) return;
   window.__ftmSessionRecovery = true;
 
