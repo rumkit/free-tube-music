@@ -46,13 +46,63 @@ fn chrome_user_agent() -> String {
 /// google.com/youtube.com as one organisation via `tracking_org_relationships`),
 /// so this may well be a no-op. The log line at the call site records the exact
 /// string used, so it's possible to tell afterwards what was actually in effect.
-fn chromium_args(port: u16) -> String {
-    format!(
+/// `netlog_file`, when set, adds Chromium's own network event capture
+/// (`--log-net-log`) at `IncludeSensitive` level — request/response headers and
+/// cookie decisions, no payload bytes. This is the instrument for the session
+/// investigation: the sign-out happens while the app is running, so a capture
+/// left on overnight records the exact request on which the session died,
+/// including whether YouTube's rotating tokens were ever refreshed. The file
+/// contains live cookie values; it must be treated as a credential and deleted
+/// after analysis.
+fn chromium_args(port: u16, netlog_file: Option<&str>) -> String {
+    let mut args = format!(
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,\
          TrackingProtection3pcd,ThirdPartyStoragePartitioning \
          --autoplay-policy=no-user-gesture-required \
          --proxy-server=http://127.0.0.1:{port}"
-    )
+    );
+    if let Some(path) = netlog_file {
+        // Quoted so a path with spaces can't split into stray arguments and
+        // corrupt the block above (which would silently drop the proxy).
+        args.push_str(&format!(
+            " --log-net-log=\"{path}\" --net-log-capture-mode=IncludeSensitive"
+        ));
+    }
+    args
+}
+
+/// Resolve the timestamped netlog path when `FTM_NETLOG` is set (to anything
+/// but `0`). Timestamped, not fixed: each capture is evidence, and a relaunch
+/// must never overwrite the file that recorded the failure. Returns `None` —
+/// with the reason logged — rather than failing startup; the capture is a
+/// diagnostic, never a prerequisite.
+fn netlog_path(app: &tauri::App) -> Option<String> {
+    let enabled = std::env::var("FTM_NETLOG").is_ok_and(|v| !v.is_empty() && v != "0");
+    if !enabled {
+        return None;
+    }
+    let dir = match app.path().app_log_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("netlog: resolving the log dir failed ({e}); capture disabled");
+            return None;
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("netlog: creating {} failed ({e}); capture disabled", dir.display());
+        return None;
+    }
+    let now = tauri::webview::cookie::time::OffsetDateTime::now_utc();
+    let file = format!(
+        "netlog-{:04}{:02}{:02}-{:02}{:02}{:02}.json",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
+    Some(dir.join(file).to_string_lossy().into_owned())
 }
 
 pub struct AppState {
@@ -70,9 +120,18 @@ pub fn run() {
         // Info, explicitly: the cookie backup/restore lines are the only way to
         // tell whether the session actually survived a restart, and they must
         // not depend on whatever the default filter happens to pass.
+        //
+        // KeepAll, because the default (KeepOne, ~40 KB) *deletes* the old file
+        // once it's over the limit — which destroyed a week of sign-out evidence.
+        // Rotated files are timestamped and small; the trade is a few stray files
+        // in the logs dir versus losing the only instrument this investigation
+        // has. Local timestamps so log lines can be matched against when the
+        // user actually saw a sign-out popup.
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .build(),
         )
         .setup(|app| {
@@ -137,7 +196,14 @@ pub fn run() {
             };
 
             let user_agent = chrome_user_agent();
-            let browser_args = chromium_args(port);
+            let netlog = netlog_path(app);
+            if let Some(p) = &netlog {
+                log::info!(
+                    "netlog: capture enabled at {p} — the file holds live cookie \
+                     values; treat it as a credential and delete it after analysis"
+                );
+            }
+            let browser_args = chromium_args(port, netlog.as_deref());
             let window = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("FreeTubeMusic")
                 .inner_size(900.0, 700.0)
@@ -232,18 +298,18 @@ mod tests {
     /// anywhere — the app would just quietly stop using the proxy.
     #[test]
     fn browser_args_carry_the_router_proxy_on_the_bound_port() {
-        assert!(chromium_args(9090).contains("--proxy-server=http://127.0.0.1:9090"));
+        assert!(chromium_args(9090, None).contains("--proxy-server=http://127.0.0.1:9090"));
         // Specifically the port passed in, not the configured default: the
         // router falls back to an OS-assigned port when the configured one
         // can't be bound.
-        assert!(chromium_args(51234).contains("--proxy-server=http://127.0.0.1:51234"));
+        assert!(chromium_args(51234, None).contains("--proxy-server=http://127.0.0.1:51234"));
     }
 
     /// wry only adds these when it builds the default block, which our override
     /// bypasses. Autoplay especially: losing it stops playback starting on its own.
     #[test]
     fn browser_args_keep_wrys_defaults() {
-        let args = chromium_args(9090);
+        let args = chromium_args(9090, None);
         for expected in [
             "msWebOOUI",
             "msPdfOOUI",
@@ -257,9 +323,21 @@ mod tests {
     /// Chromium takes one --disable-features; a second would override the first.
     #[test]
     fn browser_args_pass_a_single_disable_features_switch() {
-        let args = chromium_args(9090);
+        let args = chromium_args(9090, None);
         assert_eq!(args.matches("--disable-features=").count(), 1, "{args}");
         assert!(args.contains("TrackingProtection3pcd"));
         assert!(args.contains("ThirdPartyStoragePartitioning"));
+    }
+
+    /// The capture must be strictly additive: absent unless requested, and when
+    /// present it must not disturb the proxy flag the routing design depends on.
+    #[test]
+    fn netlog_args_are_appended_only_when_requested() {
+        assert!(!chromium_args(9090, None).contains("--log-net-log"));
+
+        let args = chromium_args(9090, Some(r"C:\logs dir\netlog.json"));
+        assert!(args.contains(r#"--log-net-log="C:\logs dir\netlog.json""#), "{args}");
+        assert!(args.contains("--net-log-capture-mode=IncludeSensitive"), "{args}");
+        assert!(args.contains("--proxy-server=http://127.0.0.1:9090"), "{args}");
     }
 }
