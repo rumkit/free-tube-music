@@ -4,7 +4,6 @@ mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
-mod session_recovery;
 mod tracking;
 
 use router::config::RouterConfig;
@@ -211,7 +210,6 @@ pub fn run() {
                 .additional_browser_args(&browser_args)
                 .user_agent(&user_agent)
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
-                .initialization_script(session_recovery::SESSION_RECOVERY_JS)
                 .build()?;
             log::info!("webview browser args: {browser_args}");
 
@@ -283,7 +281,6 @@ pub fn run() {
             commands::apply_and_launch,
             commands::request_restart,
             commands::take_startup_warning,
-            commands::log_page_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
