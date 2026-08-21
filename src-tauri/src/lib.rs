@@ -1,6 +1,5 @@
 mod commands;
 mod config_store;
-mod cookies;
 mod gear_overlay;
 mod router;
 mod secrets;
@@ -185,9 +184,10 @@ pub fn run() {
             // config page so the startup_warning above is visible.
             let launch_main = startup_warning.is_none() && is_configured;
 
-            // When launching straight into YT Music, hold on about:blank first so
-            // no authenticated request fires before we've restored the session
-            // cookies; then navigate. Otherwise show the config page as before.
+            // Hold on about:blank first, then navigate: tracking::disable below
+            // must run before the first authenticated request, and it needs a
+            // built window to reach the WebView2 profile through. Otherwise show
+            // the config page as before.
             let initial_url = if launch_main {
                 WebviewUrl::External(Url::parse("about:blank")?)
             } else {
@@ -220,56 +220,7 @@ pub fn run() {
             tracking::disable(&window);
 
             if launch_main {
-                // Re-inject session cookies WebView2 dropped on last close, then
-                // navigate. restore() runs synchronously on the main thread (the
-                // wry cookie message is handled inline here), so it completes
-                // before navigation issues the first request.
-                cookies::restore(&window);
                 window.navigate(Url::parse(&config.main_host)?)?;
-            }
-
-            // Snapshot the cookie store periodically while the webview is alive,
-            // and flush the newest snapshot on close. Best-effort; failures are
-            // logged, never fatal.
-            //
-            // The close handler deliberately does *not* read cookies: that read
-            // pumps the Windows message loop, which re-delivers the close event
-            // and re-enters this handler, and WebView2 drops cookies as it tears
-            // down — so a close-time read wrote a degraded snapshot over the good
-            // one. See the `cookies` module docs.
-            {
-                let w = window.clone();
-                let flushed = std::sync::atomic::AtomicBool::new(false);
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        if !flushed.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                            cookies::write_last(&w);
-                        }
-                    }
-                });
-            }
-            {
-                let w = window.clone();
-                tauri::async_runtime::spawn(async move {
-                    // Take the first snapshot early: the close handler can only
-                    // flush a snapshot that already exists, so without this a
-                    // session shorter than the interval would contribute nothing
-                    // at all. 15s is long enough for the page to have loaded and
-                    // settled its cookies.
-                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                    cookies::backup(&w);
-
-                    // Then 60s rather than the old 300s: this is now the only
-                    // path that reads cookies, so it bounds how much of the
-                    // session a crash — or a close between ticks — can cost.
-                    let mut interval =
-                        tokio::time::interval(std::time::Duration::from_secs(60));
-                    interval.tick().await; // fires immediately; skip it
-                    loop {
-                        interval.tick().await;
-                        cookies::backup(&w);
-                    }
-                });
             }
 
             Ok(())
