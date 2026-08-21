@@ -26,3 +26,10 @@ dist-ssr
 # Mobile icons
 src-tauri/icons/android/
 src-tauri/icons/ios/
+
+# Network captures and session artifacts — these hold live cookie values and
+# must never be committed. Sizes run to hundreds of MB.
+netlog-*.json
+*net-export*.json
+*.har
+cookies.dat
