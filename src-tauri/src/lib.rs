@@ -3,7 +3,6 @@ mod config_store;
 mod gear_overlay;
 mod router;
 mod secrets;
-mod tracking;
 
 use router::config::RouterConfig;
 use std::sync::{Arc, Mutex};
@@ -37,13 +36,6 @@ fn chrome_user_agent() -> String {
 /// error anywhere. `port` must be the port the router actually bound, which may
 /// be an OS-assigned fallback rather than the configured one.
 ///
-/// On top of the defaults, this disables Chromium's third-party-cookie phase-out
-/// (`TrackingProtection3pcd`) and cross-site storage partitioning. That part is a
-/// **trial**: the profile shows no sign third-party cookies are being blocked
-/// (`cookie_controls_mode` unset, no cookie exceptions, and Edge already records
-/// google.com/youtube.com as one organisation via `tracking_org_relationships`),
-/// so this may well be a no-op. The log line at the call site records the exact
-/// string used, so it's possible to tell afterwards what was actually in effect.
 /// `netlog_file`, when set, adds Chromium's own network event capture
 /// (`--log-net-log`) at `IncludeSensitive` level — request/response headers and
 /// cookie decisions, no payload bytes. This is the instrument for the session
@@ -54,8 +46,7 @@ fn chrome_user_agent() -> String {
 /// after analysis.
 fn chromium_args(port: u16, netlog_file: Option<&str>) -> String {
     let mut args = format!(
-        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,\
-         TrackingProtection3pcd,ThirdPartyStoragePartitioning \
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
          --autoplay-policy=no-user-gesture-required \
          --proxy-server=http://127.0.0.1:{port}"
     );
@@ -184,12 +175,8 @@ pub fn run() {
             // config page so the startup_warning above is visible.
             let launch_main = startup_warning.is_none() && is_configured;
 
-            // Hold on about:blank first, then navigate: tracking::disable below
-            // must run before the first authenticated request, and it needs a
-            // built window to reach the WebView2 profile through. Otherwise show
-            // the config page as before.
             let initial_url = if launch_main {
-                WebviewUrl::External(Url::parse("about:blank")?)
+                WebviewUrl::External(Url::parse(&config.main_host)?)
             } else {
                 WebviewUrl::App("config.html".into())
             };
@@ -203,7 +190,7 @@ pub fn run() {
                 );
             }
             let browser_args = chromium_args(port, netlog.as_deref());
-            let window = WebviewWindowBuilder::new(app, "main", initial_url)
+            WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("FreeTubeMusic")
                 .inner_size(900.0, 700.0)
                 .proxy_url(proxy_url)
@@ -212,16 +199,6 @@ pub fn run() {
                 .initialization_script(gear_overlay::GEAR_OVERLAY_JS)
                 .build()?;
             log::info!("webview browser args: {browser_args}");
-
-            // Allow Google's cross-site cookies to flow (WebView2 blocks
-            // third-party cookies by default via tracking prevention), so the
-            // logged-in session survives mid-use instead of being signed out.
-            // Set before the first navigation below.
-            tracking::disable(&window);
-
-            if launch_main {
-                window.navigate(Url::parse(&config.main_host)?)?;
-            }
 
             Ok(())
         })
@@ -273,8 +250,6 @@ mod tests {
     fn browser_args_pass_a_single_disable_features_switch() {
         let args = chromium_args(9090, None);
         assert_eq!(args.matches("--disable-features=").count(), 1, "{args}");
-        assert!(args.contains("TrackingProtection3pcd"));
-        assert!(args.contains("ThirdPartyStoragePartitioning"));
     }
 
     /// The capture must be strictly additive: absent unless requested, and when

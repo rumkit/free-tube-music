@@ -1126,8 +1126,6 @@ dependencies = [
  "tokio",
  "tokio-socks",
  "url",
- "webview2-com",
- "windows",
 ]
 
 [[package]]

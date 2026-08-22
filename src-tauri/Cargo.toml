@@ -28,6 +28,4 @@ log = "0.4"
 tauri-plugin-log = "2"
 tokio-socks = "0.5.3"
 keyring = { version = "4.1.5", features = ["windows-native-keyring-store"] }
-windows = { version = "0.61", features = [] }
-webview2-com = "0.38"
 
