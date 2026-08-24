@@ -62,15 +62,28 @@ npm run tauri build -- --no-bundle
 
 ## Publish / distribute a release
 
-This repo has no CI release pipeline configured — releases are built and
-distributed manually: 
+Releases are built by GitHub Actions (`.github/workflows/release.yml`), which
+triggers on any pushed tag matching `v*`. It runs `cargo test`, builds the app,
+attests build provenance, and publishes a GitHub release with the NSIS
+installer, the MSI and the bare `.exe` attached.
 
-1. Bump the version in `src-tauri/tauri.conf.json` (`version`) and
-   `package.json` to match.
-2. Run `npm run tauri build` to produce the signed-or-unsigned installers in
-   `src-tauri/target/release/bundle/{msi,nsis}/`.
-3. Attach the installer(s) to a GitHub release (or your distribution channel
-   of choice) tagged with the matching version.
+1. Bump the version in **all three** manifests, which must match:
+   `src-tauri/tauri.conf.json` (this is the one the installers take their
+   version from), `package.json`, and `src-tauri/Cargo.toml`. Run `cargo check`
+   from `src-tauri/` afterwards so `Cargo.lock` picks the new version up.
+2. Commit, then tag and push:
+
+   ```sh
+   git tag v0.1.2 && git push origin v0.1.2
+   ```
+
+3. Watch the run with `gh run watch`. The release is published **non-draft**,
+   so a successful build goes public immediately.
+
+To build installers locally without releasing, run `npm run tauri build` — the
+output lands in `src-tauri/target/release/bundle/{msi,nsis}/`. The workflow can
+also be started by hand with `workflow_dispatch`, which builds and uploads
+artifacts but publishes no release.
 
 Unsigned Windows installers will trigger a SmartScreen warning on first run.
 To avoid that, configure code signing under `bundle.windows.certificateThumbprint`
