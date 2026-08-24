@@ -106,20 +106,20 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        // Info, explicitly: the cookie backup/restore lines are the only way to
-        // tell whether the session actually survived a restart, and they must
+        // Info, explicitly: the router's `accounts.*` CONNECT line is the cheapest
+        // permanent proof that the DBSC heartbeat is still alive, and it must
         // not depend on whatever the default filter happens to pass.
         //
-        // KeepAll, because the default (KeepOne, ~40 KB) *deletes* the old file
-        // once it's over the limit — which destroyed a week of sign-out evidence.
-        // Rotated files are timestamped and small; the trade is a few stray files
-        // in the logs dir versus losing the only instrument this investigation
-        // has. Local timestamps so log lines can be matched against when the
-        // user actually saw a sign-out popup.
+        // KeepSome(5) with a 256 KB cap — ~1.25 MB bounded, enough history to
+        // cover a night's run. Never go back to the default KeepOne: it *deletes*
+        // the old file once it's over the limit, which is what destroyed a week
+        // of sign-out evidence. Local timestamps so log lines can be matched
+        // against when the user actually saw a sign-out popup.
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
-                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .max_file_size(256 * 1024)
                 .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .build(),
         )

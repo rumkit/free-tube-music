@@ -56,11 +56,11 @@ async fn handle_connection(
 
     let config = config_rx.borrow().clone();
 
-    // Google's account hosts are the ones that re-mint a stale YouTube session
-    // (the `*SIDRTS` rotation tokens live ~10 minutes, so after the app has been
-    // closed a while there is nothing left to rotate with). Logging just these
-    // makes it visible whether a refresh was even attempted on a signed-out
-    // launch, without logging the user's whole browsing history.
+    // `accounts.youtube.com` is where the device-bound (DBSC) relying session
+    // heartbeats — a RotateRelyingSession challenge/retry pair every ~483 s for
+    // as long as the session is healthy. Logging just these hosts makes that
+    // heartbeat visible at a glance, and its absence is the first symptom of a
+    // session going stale, without logging the user's whole browsing history.
     if host.starts_with("accounts.") {
         log::info!("router: connecting to {host}:{port}");
     }
