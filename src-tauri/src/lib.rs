@@ -156,6 +156,26 @@ pub fn run() {
             });
             let port = listener.local_addr()?.port();
 
+            // A main_host that doesn't parse must not be fatal: this runs inside
+            // setup(), whose Err panics out of run() before any window exists —
+            // and with windows_subsystem = "windows" there's no console either,
+            // so the app would simply fail to start with nothing on screen and
+            // no way to reach the config page. Fall back to it instead.
+            let main_host_url = match Url::parse(&config.main_host) {
+                Ok(url) => Some(url),
+                Err(e) => {
+                    let message = format!(
+                        "The saved main host \"{}\" isn't a valid URL ({e}). It needs \
+                         a scheme, e.g. https://music.youtube.com — fix it below and \
+                         save.",
+                        config.main_host
+                    );
+                    log::error!("{message}");
+                    startup_warning.get_or_insert(message);
+                    None
+                }
+            };
+
             app.manage(AppState {
                 router_config_tx: tx,
                 startup_warning: Mutex::new(startup_warning.clone()),
@@ -175,10 +195,12 @@ pub fn run() {
             // config page so the startup_warning above is visible.
             let launch_main = startup_warning.is_none() && is_configured;
 
-            let initial_url = if launch_main {
-                WebviewUrl::External(Url::parse(&config.main_host)?)
-            } else {
-                WebviewUrl::App("config.html".into())
+            // launch_main is already false when main_host failed to parse (it
+            // set startup_warning above), so the Some is guaranteed here; the
+            // match just avoids restating that invariant as an unwrap.
+            let initial_url = match main_host_url.filter(|_| launch_main) {
+                Some(url) => WebviewUrl::External(url),
+                None => WebviewUrl::App("config.html".into()),
             };
 
             let user_agent = chrome_user_agent();

@@ -60,6 +60,13 @@ pub async fn save_config(
     let previous = config_store::load(&app)?;
     let restart_required = previous.router_port != config.router_port;
 
+    // Rejected here rather than at launch: setup() can only fall back to the
+    // config page, and the user would have to discover the problem from a
+    // warning on the next start instead of an inline error now.
+    Url::parse(&config.main_host).map_err(|e| {
+        format!("\"{}\" isn't a valid URL ({e}) — it needs a scheme, e.g. https://music.youtube.com", config.main_host)
+    })?;
+
     // Resolve without persisting: an empty field means "keep what's already in
     // the keyring", which is also what lets the form avoid pre-filling it.
     let effective_password = match password.as_deref().filter(|p| !p.is_empty()) {
