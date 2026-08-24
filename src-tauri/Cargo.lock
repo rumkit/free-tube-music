@@ -1125,7 +1125,6 @@ dependencies = [
  "tauri-plugin-store",
  "tokio",
  "tokio-socks",
- "url",
 ]
 
 [[package]]

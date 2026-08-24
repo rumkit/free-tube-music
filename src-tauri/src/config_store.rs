@@ -11,12 +11,6 @@ pub enum RedirectMode {
     All,
 }
 
-impl Default for RedirectMode {
-    fn default() -> Self {
-        RedirectMode::List
-    }
-}
-
 fn default_true() -> bool {
     true
 }
