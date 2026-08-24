@@ -93,12 +93,52 @@ holds the JS injected via `initialization_script` on every page load
 (including inside music.youtube.com) so there's always a way back to the
 config page via a small fixed-position gear button.
 
+## The session, and how it stays alive
+
+The app's YouTube session is held by a **device-bound session** (DBSC) that the
+WebView2 network stack manages entirely on its own — no page code, and nothing
+in this repo. At interactive sign-in Google offers registration via
+`secure-session-registration` headers; the stack POSTs
+`accounts.google.com/RegisterSession` and thereafter refreshes
+`.youtube.com`'s rotating `__Secure-*PSIDTS`/`*PSIDRTS` tokens by hitting
+`accounts.youtube.com/RotateRelyingSession` every **483 s** (a 403 challenge
+followed by a 200 signed retry). Without it, the session dies **2 h 01 m**
+after it was minted.
+
+Two consequences worth knowing before changing anything here:
+
+- **`accounts.youtube.com` must keep working.** The router logs its CONNECT
+  lines at `info!` precisely so this heartbeat is visible; a run whose log has
+  no `router: connecting to accounts.youtube.com:443` lines at ~8 min intervals
+  has a session that is already dying. Rotation is confirmed to work *through*
+  the SOCKS proxy — device-bound sessions are not proxy-hostile.
+- **If a daily sign-out ever recurs, the fix is very unlikely to be code.** The
+  registration offer rides *interactive* sign-ins only, so an install whose
+  sign-in predates a Google rollout never receives it, and silent re-auth can
+  never repair that. One Google-account sign-out plus a password sign-in inside
+  the app restores it. A 2026-08 investigation built several workarounds for
+  this — cookie backup/restore, silent re-auth, tracking-prevention flags — and
+  every one of them was later removed as useless. See the `stale/session-guard`
+  branch for the full postmortem before writing anything similar.
+
+`FTM_NETLOG=1` captures the app's own network stack to the logs dir, which is
+the instrument that settled all of the above. It is inert unless the env var is
+set. The Chrome user agent is also load-bearing: Google refuses interactive
+sign-in without it, and interactive sign-in is the healing path.
+
 ## Known limitation to keep in mind
 
-The default gated-host list (`music.youtube.com`, `youtubei.googleapis.com` in
-`AppConfig::default()`) is a best guess, not verified against a real network
-trace. Host-level routing only works if the geo-gated request(s) and
-media-streaming requests are served from *different* hosts — if that's not
-true, don't try to fix it with finer-grained routing inside this router; that
-would require full TLS termination (a real MITM layer), which is out of scope
-by design.
+At runtime `redirect_mode` is `"all"` — every host goes through the SOCKS
+proxy — so the default gated-host list (`music.youtube.com`,
+`youtubei.googleapis.com` in `AppConfig::default()`) is not actually what's in
+force, and remains an educated guess about which requests are geo-gated.
+
+Host-level routing only works if the geo-gated request(s) and media-streaming
+requests are served from *different* hosts — if that's not true, don't try to
+fix it with finer-grained routing inside this router; that would require full
+TLS termination (a real MITM layer), which is out of scope by design.
+
+If narrowing `redirect_mode` to a list is ever attempted, note the untested
+variable: today registration *and* rotation both egress from the proxy IP.
+Selective routing would split them across two egress IPs, and whether Google
+tolerates that mix has never been measured.
