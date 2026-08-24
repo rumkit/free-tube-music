@@ -21,9 +21,11 @@ Run from the repo root unless noted.
 - `npm run tauri dev` — build and launch the app with hot reload.
 - `npm run tauri build` — production build.
 - `cargo check` (from `src-tauri/`) — fast compile check of the Rust backend.
-- `cargo test` (from `src-tauri/`) — runs the router unit tests (`src-tauri/src/router/mod.rs`,
-  `mod tests`). Run a single test with `cargo test <test_name>`, e.g.
-  `cargo test non_gated_host_is_dialed_directly`.
+- `cargo test` (from `src-tauri/`) — 7 tests across three modules: the router
+  (`router/mod.rs`), the config mapping (`commands.rs`), and the
+  `browser_args_*` / `netlog_args_*` tests in `lib.rs`, which are the
+  load-bearing ones (see `chromium_args` below). Run a single test with
+  `cargo test <test_name>`, e.g. `cargo test non_gated_host_is_dialed_directly`.
 
 **Toolchain:** this project is pinned to the MSVC Rust toolchain via
 `rustup override set stable-x86_64-pc-windows-msvc` in `src-tauri/` — the GNU
@@ -53,30 +55,57 @@ An in-process tokio task, not a sidecar process — spawned once in `lib.rs`'s
 memory (read fresh from the keyring at config-build time, not cached
 long-term).
 
-The main window is created with `.proxy_url("http://127.0.0.1:<router_port>")`
-(a Tauri/wry `WebviewWindowBuilder` method) so *all* WebView2 traffic flows
-through this router — the router itself is what decides direct vs. proxied
-per request, not the browser-level proxy config.
+All WebView2 traffic is pointed at this router by
+`--proxy-server=http://127.0.0.1:<router_port>`, built in `lib.rs`'s
+`chromium_args` and passed via `.additional_browser_args(...)` — the router
+itself is what decides direct vs. proxied per request, not the browser-level
+proxy config.
+
+**`chromium_args` is load-bearing and easy to break.** Setting
+`additional_browser_args` takes over wry's *entire* default argument block, so
+that function has to reproduce wry's defaults by hand — and on Windows it is
+also the only thing that applies the proxy at all: `.proxy_url(...)` is still
+set on the builder, but wry reads `proxy_config` only inside the
+`unwrap_or_else` fallback for `additional_browser_args`, which never runs here.
+Keep it as a safety net for the day those args go away; don't mistake it for
+what's routing traffic today. The `browser_args_*` tests in `lib.rs` pin the
+proxy flag, wry's defaults, and the single-`--disable-features` rule precisely
+because a silent drop here breaks routing with no error anywhere.
+
+### Degraded starts (`startup_warning`)
+
+`setup()` must never fail: its `Err` propagates into `run()`'s `.expect(...)`,
+and with `windows_subsystem = "windows"` there's no console, so a panic there
+means the app never appears and the user has no way to reach the config page.
+Two recoverable problems are therefore handled by falling back and recording a
+message in `AppState::startup_warning` — a router port that won't bind (an
+OS-assigned port is used instead) and a `main_host` that won't parse. A
+non-empty warning also forces the window to open on the config page rather than
+`main_host`, so the explanation is visible; the page reads it once via
+`take_startup_warning` and it isn't shown again.
 
 ### Config & secrets split
 
 - **Non-secret config** (`src-tauri/src/config_store.rs`, `AppConfig` struct):
-  proxy host/port/username, router port, redirect mode + host list, main host.
-  Persisted via `tauri-plugin-store` to `config.json` in the app data dir.
+  `proxy_enabled` plus proxy host/port/username, router port, redirect mode +
+  host list, main host. Persisted via `tauri-plugin-store` to `config.json` in
+  the app data dir.
 - **Secret** (`src-tauri/src/secrets.rs`): only the proxy password, stored via
   the `keyring` crate (Windows Credential Manager backend). It is never
   written to the store file and the config form never pre-fills it on reopen.
 
 ### Commands (`src-tauri/src/commands.rs`)
 
-- `save_config` test-dials the SOCKS5 proxy (auth handshake against a
-  throwaway target) before persisting anything, so bad credentials surface as
-  an inline form error instead of being silently saved. See the `Error`
-  variant match in `test_socks5_auth` — only post-auth connect failures
-  (`HostUnreachable`, `ConnectionRefused`, etc.) are treated as "auth
+- `save_config` validates `main_host`, then test-dials the SOCKS5 proxy (auth
+  handshake against a throwaway target), and only *then* writes the password to
+  the keyring and the config to the store — so a bad value surfaces as an inline
+  form error instead of replacing a working one. Order matters here: writing the
+  password first meant a rejected save still overwrote the good password. See
+  the `Error` variant match in `test_socks5_auth` — only post-auth connect
+  failures (`HostUnreachable`, `ConnectionRefused`, etc.) are treated as "auth
   succeeded"; auth/handshake-level errors are surfaced to the user.
 - Changing `router_port` requires a full app restart (it's baked into the
-  webview's `proxy_url` at window-creation time and can't be mutated live) —
+  webview's browser args at window-creation time and can't be mutated live) —
   `save_config` reports `restart_required` and the frontend calls
   `request_restart` (`AppHandle::restart()`) rather than hot-reloading.
   Every other config field hot-reloads via the router's watch channel.
