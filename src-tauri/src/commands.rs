@@ -60,16 +60,12 @@ pub async fn save_config(
     let previous = config_store::load(&app)?;
     let restart_required = previous.router_port != config.router_port;
 
-    if let Some(ref new_password) = password {
-        if !new_password.is_empty() {
-            secrets::set_password(new_password)?;
-        }
-    }
-
-    let effective_password = password
-        .filter(|p| !p.is_empty())
-        .or_else(secrets::get_password)
-        .unwrap_or_default();
+    // Resolve without persisting: an empty field means "keep what's already in
+    // the keyring", which is also what lets the form avoid pre-filling it.
+    let effective_password = match password.as_deref().filter(|p| !p.is_empty()) {
+        Some(p) => p.to_string(),
+        None => secrets::get_password().unwrap_or_default(),
+    };
 
     if config.proxy_enabled {
         if config.proxy_host.is_empty() {
@@ -77,6 +73,17 @@ pub async fn save_config(
         }
 
         test_socks5_auth(&config.proxy_host, config.proxy_port, &config.proxy_username, &effective_password).await?;
+    }
+
+    // Only once the credentials are known good. Writing earlier means a typo
+    // overwrites the working password in Credential Manager even though the
+    // save is rejected — and since config.json still holds the old host, the
+    // next launch looks configured and goes straight to a router that 502s
+    // every proxied host.
+    if let Some(ref new_password) = password {
+        if !new_password.is_empty() {
+            secrets::set_password(new_password)?;
+        }
     }
 
     config_store::save(&app, &config)?;
