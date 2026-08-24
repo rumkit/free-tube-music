@@ -65,9 +65,14 @@ fn chromium_args(port: u16, netlog_file: Option<&str>) -> String {
 /// must never overwrite the file that recorded the failure. Returns `None` —
 /// with the reason logged — rather than failing startup; the capture is a
 /// diagnostic, never a prerequisite.
+/// The single "I am investigating" switch: it enables the netlog capture and
+/// raises the log filter to `Debug`. Set to anything but empty or `0`.
+fn netlog_requested() -> bool {
+    std::env::var("FTM_NETLOG").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
 fn netlog_path(app: &tauri::App) -> Option<String> {
-    let enabled = std::env::var("FTM_NETLOG").is_ok_and(|v| !v.is_empty() && v != "0");
-    if !enabled {
+    if !netlog_requested() {
         return None;
     }
     let dir = match app.path().app_log_dir() {
@@ -106,18 +111,25 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        // Info, explicitly: the router's `accounts.*` CONNECT line is the cheapest
-        // permanent proof that the DBSC heartbeat is still alive, and it must
-        // not depend on whatever the default filter happens to pass.
+        // Info by default, so a healthy run logs only startup plus anything that
+        // actually went wrong. FTM_NETLOG is already the "I am investigating"
+        // switch, so it also raises the filter to Debug — that's what surfaces
+        // the router's per-connection errors and its `accounts.*` heartbeat
+        // lines, neither of which earns a place in a normal log.
         //
-        // KeepSome(5) with a 256 KB cap — ~1.25 MB bounded, enough history to
-        // cover a night's run. Never go back to the default KeepOne: it *deletes*
-        // the old file once it's over the limit, which is what destroyed a week
-        // of sign-out evidence. Local timestamps so log lines can be matched
-        // against when the user actually saw a sign-out popup.
+        // KeepSome(5) with a 256 KB cap. Note KeepSome(n) keeps n *archived*
+        // files plus the active one, so the real ceiling is 6 files / ~1.5 MB.
+        // Never go back to the default KeepOne: it *deletes* the old file once
+        // it's over the limit, which is what destroyed a week of sign-out
+        // evidence. Local timestamps so log lines can be matched against when
+        // the user actually saw a sign-out popup.
         .plugin(
             tauri_plugin_log::Builder::default()
-                .level(log::LevelFilter::Info)
+                .level(if netlog_requested() {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
                 .max_file_size(256 * 1024)
                 .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)

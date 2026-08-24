@@ -1,6 +1,7 @@
 pub mod config;
 
 use config::RouterConfig;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -29,11 +30,19 @@ pub async fn serve(
         listener.local_addr().map(|a| a.to_string()).unwrap_or_default()
     );
 
+    // Shared by every connection: the app has exactly one upstream proxy, so a
+    // failure is a statement about that proxy rather than about the host being
+    // dialled. Tracking it as one flag lets the log carry the two events that
+    // matter — it started failing, it recovered — instead of one line per
+    // request, which under an outage means thousands a minute.
+    let upstream_failing = Arc::new(AtomicBool::new(false));
+
     loop {
         let (socket, _addr) = listener.accept().await?;
         let config_rx = config_rx.clone();
+        let upstream_failing = Arc::clone(&upstream_failing);
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(socket, config_rx).await {
+            if let Err(e) = handle_connection(socket, config_rx, upstream_failing).await {
                 log::debug!("router connection error: {e}");
             }
         });
@@ -43,6 +52,7 @@ pub async fn serve(
 async fn handle_connection(
     mut client: TcpStream,
     config_rx: watch::Receiver<Arc<RouterConfig>>,
+    upstream_failing: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
     let (host, port) = match read_connect_target(&mut client).await? {
         Some(target) => target,
@@ -58,11 +68,12 @@ async fn handle_connection(
 
     // `accounts.youtube.com` is where the device-bound (DBSC) relying session
     // heartbeats — a RotateRelyingSession challenge/retry pair every ~483 s for
-    // as long as the session is healthy. Logging just these hosts makes that
-    // heartbeat visible at a glance, and its absence is the first symptom of a
-    // session going stale, without logging the user's whole browsing history.
+    // as long as the session is healthy. That's expected, successful, routine
+    // traffic, so it stays at debug: FTM_NETLOG raises the filter to Debug and
+    // captures the exchange properly anyway. Restricted to `accounts.` either
+    // way, so enabling it never logs the user's whole browsing history.
     if host.starts_with("accounts.") {
-        log::info!("router: connecting to {host}:{port}");
+        log::debug!("router: connecting to {host}:{port}");
     }
 
     let upstream_result = if config.should_proxy(&host) {
@@ -74,9 +85,18 @@ async fn handle_connection(
     };
 
     let mut upstream = match upstream_result {
-        Ok(stream) => stream,
+        Ok(stream) => {
+            if upstream_failing.swap(false, Ordering::Relaxed) {
+                log::info!("router: connections restored (reached {host}:{port})");
+            }
+            stream
+        }
         Err(e) => {
-            log::warn!("failed to connect to {host}:{port}: {e}");
+            // Edge-triggered: only the transition into the failing state is
+            // logged. The gap to the "restored" line above is the outage.
+            if !upstream_failing.swap(true, Ordering::Relaxed) {
+                log::warn!("router: connections failing, first error was {host}:{port}: {e}");
+            }
             client
                 .write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
                 .await?;
@@ -171,11 +191,13 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = watch::channel(Arc::new(config));
 
+        let upstream_failing = Arc::new(AtomicBool::new(false));
         tokio::spawn(async move {
             loop {
                 let (socket, _) = listener.accept().await.unwrap();
                 let rx = rx.clone();
-                tokio::spawn(handle_connection(socket, rx));
+                let failing = Arc::clone(&upstream_failing);
+                tokio::spawn(handle_connection(socket, rx, failing));
             }
         });
 
