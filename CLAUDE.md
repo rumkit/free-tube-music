@@ -136,11 +136,14 @@ after it was minted.
 
 Two consequences worth knowing before changing anything here:
 
-- **`accounts.youtube.com` must keep working.** The router logs its CONNECT
-  lines at `info!` precisely so this heartbeat is visible; a run whose log has
-  no `router: connecting to accounts.youtube.com:443` lines at ~8 min intervals
-  has a session that is already dying. Rotation is confirmed to work *through*
-  the SOCKS proxy — device-bound sessions are not proxy-hostile.
+- **`accounts.youtube.com` must keep working.** To watch the heartbeat, run with
+  `FTM_NETLOG=1`: it raises the log filter to `Debug`, which surfaces the
+  router's `router: connecting to accounts.youtube.com:443` lines — they should
+  appear at ~8 min intervals, and a run without them has a session that is
+  already dying. They are *not* in a normal log, deliberately: successful
+  routine traffic isn't worth 179 lines a day, and the netlog capture the same
+  switch turns on records the exchange far better. Rotation is confirmed to work
+  *through* the SOCKS proxy — device-bound sessions are not proxy-hostile.
 - **If a daily sign-out ever recurs, the fix is very unlikely to be code.** The
   registration offer rides *interactive* sign-ins only, so an install whose
   sign-in predates a Google rollout never receives it, and silent re-auth can
@@ -150,10 +153,16 @@ Two consequences worth knowing before changing anything here:
   every one of them was later removed as useless. See the `stale/session-guard`
   branch for the full postmortem before writing anything similar.
 
-`FTM_NETLOG=1` captures the app's own network stack to the logs dir, which is
-the instrument that settled all of the above. It is inert unless the env var is
-set. The Chrome user agent is also load-bearing: Google refuses interactive
-sign-in without it, and interactive sign-in is the healing path.
+`FTM_NETLOG=1` is the one "I am investigating" switch: it captures the app's own
+network stack to the logs dir — the instrument that settled all of the above —
+*and* raises the log filter from `Info` to `Debug`. Inert unless set. Note the
+capture holds live cookie values and nothing ever prunes it, so it is a
+credential: delete it after analysis. The rotated `.log` files are bounded
+(`KeepSome(5)` at 256 KB is 5 archives plus the active one, ~1.5 MB); the
+captures are not.
+
+The Chrome user agent is also load-bearing: Google refuses interactive sign-in
+without it, and interactive sign-in is the healing path.
 
 ## Known limitation to keep in mind
 
